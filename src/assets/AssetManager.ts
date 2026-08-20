@@ -6,11 +6,13 @@
 
 import * as PIXI from 'pixi.js';
 import { IAssetRepository, TerrainAsset, ObjectAsset, CollisionBoxDef } from './types';
+import { CustomAssetData } from '../core/types';
 
 export class AssetManager implements IAssetRepository {
   private terrains: Map<string, TerrainAsset> = new Map();
   private objects: Map<string, ObjectAsset> = new Map();
   private thumbnailCache: Map<string, string> = new Map();
+  private customAssetsMap: Map<string, CustomAssetData> = new Map();
   public playerTexture: PIXI.Texture | null = null;
   public initialized = false;
 
@@ -275,6 +277,7 @@ export class AssetManager implements IAssetRepository {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = e => {
+        const dataUrl = e.target?.result as string;
         const img = new Image();
         img.onload = () => {
           const id = `custom_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
@@ -289,6 +292,14 @@ export class AssetManager implements IAssetRepository {
               ctx.imageSmoothingEnabled = false;
               ctx.drawImage(img, 0, 0, 32, 32);
               this.registerTerrain(id, assetName, canvas);
+              this.customAssetsMap.set(id, {
+                id,
+                type: 'terrain',
+                name: assetName,
+                width: 32,
+                height: 32,
+                dataUrl: canvas.toDataURL('image/png')
+              });
               resolve({ type: 'terrain', id, name: assetName });
             } else {
               reject(new Error('Canvas context not available'));
@@ -300,6 +311,10 @@ export class AssetManager implements IAssetRepository {
             const ctx = canvas.getContext('2d');
             if (ctx) {
               ctx.drawImage(img, 0, 0);
+
+              // Calculate heuristic collision box based on object dimensions
+              const colBox = this.calculateHeuristicCollisionBox(img.width, img.height);
+
               this.registerObject(id, {
                 name: assetName,
                 category: 'Importados',
@@ -308,14 +323,24 @@ export class AssetManager implements IAssetRepository {
                 anchorX: 0.5,
                 anchorY: 0.95,
                 collision: true,
-                collisionBox: {
-                  width: Math.max(16, Math.round(img.width * 0.5)),
-                  height: 20,
-                  offsetX: 0,
-                  offsetY: -10
-                },
+                collisionBox: colBox,
                 canvas
               });
+
+              this.customAssetsMap.set(id, {
+                id,
+                type: 'object',
+                name: assetName,
+                category: 'Importados',
+                width: img.width,
+                height: img.height,
+                anchorX: 0.5,
+                anchorY: 0.95,
+                collision: true,
+                collisionBox: colBox,
+                dataUrl
+              });
+
               resolve({ type: 'object', id, name: assetName });
             } else {
               reject(new Error('Canvas context not available'));
@@ -323,11 +348,104 @@ export class AssetManager implements IAssetRepository {
           }
         };
         img.onerror = reject;
-        img.src = e.target?.result as string;
+        img.src = dataUrl;
       };
       reader.onerror = reject;
       reader.readAsDataURL(file);
     });
+  }
+
+  /**
+   * Generates a sensible physical collisionBox representing the ground base of the object
+   */
+  public calculateHeuristicCollisionBox(width: number, height: number): CollisionBoxDef {
+    // 1. Tall / vertical objects (trees, towers, lamp posts)
+    if (height >= width * 1.25) {
+      const boxW = Math.max(16, Math.min(width * 0.4, 48));
+      const boxH = Math.max(14, Math.min(height * 0.18, 28));
+      return {
+        width: Math.round(boxW),
+        height: Math.round(boxH),
+        offsetX: 0,
+        offsetY: -Math.round(boxH / 2)
+      };
+    }
+
+    // 2. Wide structures / buildings
+    if (width >= 80 && height >= 60) {
+      const boxW = Math.round(width * 0.85);
+      const boxH = Math.round(height * 0.45);
+      return {
+        width: boxW,
+        height: boxH,
+        offsetX: 0,
+        offsetY: -Math.round(boxH / 2)
+      };
+    }
+
+    // 3. Standard props, rocks, barrels, chests
+    const boxW = Math.max(14, Math.round(width * 0.7));
+    const boxH = Math.max(12, Math.round(height * 0.45));
+    return {
+      width: boxW,
+      height: boxH,
+      offsetX: 0,
+      offsetY: -Math.round(boxH / 2)
+    };
+  }
+
+  exportCustomAssets(): CustomAssetData[] {
+    return Array.from(this.customAssetsMap.values());
+  }
+
+  async importCustomAssets(assets: CustomAssetData[]): Promise<void> {
+    if (!assets || !Array.isArray(assets) || assets.length === 0) return;
+
+    for (const asset of assets) {
+      if (this.customAssetsMap.has(asset.id)) continue;
+
+      await new Promise<void>((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          if (asset.type === 'terrain') {
+            const canvas = document.createElement('canvas');
+            canvas.width = 32;
+            canvas.height = 32;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.imageSmoothingEnabled = false;
+              ctx.drawImage(img, 0, 0, 32, 32);
+              this.registerTerrain(asset.id, asset.name, canvas);
+              this.customAssetsMap.set(asset.id, asset);
+            }
+          } else {
+            const canvas = document.createElement('canvas');
+            canvas.width = asset.width || img.width;
+            canvas.height = asset.height || img.height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0);
+              const colBox = asset.collisionBox || this.calculateHeuristicCollisionBox(canvas.width, canvas.height);
+              this.registerObject(asset.id, {
+                name: asset.name,
+                category: asset.category || 'Importados',
+                width: canvas.width,
+                height: canvas.height,
+                anchorX: asset.anchorX ?? 0.5,
+                anchorY: asset.anchorY ?? 0.95,
+                collision: asset.collision ?? true,
+                collisionBox: colBox,
+                canvas
+              });
+              this.customAssetsMap.set(asset.id, asset);
+            }
+          }
+          resolve();
+        };
+        img.onerror = () => resolve();
+        img.src = asset.dataUrl;
+      });
+    }
   }
 
   // Helper to create 2D canvas

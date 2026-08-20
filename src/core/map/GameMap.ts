@@ -188,6 +188,134 @@ export class GameMap {
   }
 
   /**
+   * Checks if a circular entity at (x, y) with radius intersects any collision tile
+   */
+  checkTileCollision(x: number, y: number, radius = 9): boolean {
+    const minTx = Math.floor((x - radius) / this.tileSize);
+    const maxTx = Math.floor((x + radius) / this.tileSize);
+    const minTy = Math.floor((y - radius) / this.tileSize);
+    const maxTy = Math.floor((y + radius) / this.tileSize);
+
+    for (let ty = minTy; ty <= maxTy; ty++) {
+      for (let tx = minTx; tx <= maxTx; tx++) {
+        if (!this.inBounds(tx, ty) || this.getCollision(tx, ty) === 1) {
+          const tileLeft = tx * this.tileSize;
+          const tileTop = ty * this.tileSize;
+          const tileRight = tileLeft + this.tileSize;
+          const tileBottom = tileTop + this.tileSize;
+
+          const closestX = Math.max(tileLeft, Math.min(x, tileRight));
+          const closestY = Math.max(tileTop, Math.min(y, tileBottom));
+          const distSq = (x - closestX) ** 2 + (y - closestY) ** 2;
+
+          if (distSq < radius * radius) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Checks if a circular entity at (x, y) with radius intersects any object's collisionBox
+   */
+  checkObjectCollision(
+    x: number,
+    y: number,
+    radius = 9,
+    getAssetDef: (assetId: string) => ObjectDefinition | null
+  ): boolean {
+    for (const obj of this.objects) {
+      if (obj.collision === false) continue;
+
+      const def = getAssetDef(obj.asset);
+      const colBox = obj.collisionBox || def?.collisionBox;
+      if (!colBox) continue;
+
+      // Transform world coordinate (x, y) into object's local coordinate space
+      const { localX, localY } = Transform.worldToLocal(x, y, obj);
+
+      const halfW = colBox.width / 2;
+      const halfH = colBox.height / 2;
+      const minX = colBox.offsetX - halfW;
+      const maxX = colBox.offsetX + halfW;
+      const minY = colBox.offsetY - halfH;
+      const maxY = colBox.offsetY + halfH;
+
+      const closestX = Math.max(minX, Math.min(localX, maxX));
+      const closestY = Math.max(minY, Math.min(localY, maxY));
+
+      const scale = Math.max(0.1, Math.abs(obj.scaleX || 1), Math.abs(obj.scaleY || 1));
+      const effRadius = radius / scale;
+
+      const distSq = (localX - closestX) ** 2 + (localY - closestY) ** 2;
+      if (distSq < effRadius * effRadius) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Checks combined tile + object collision
+   */
+  checkCollision(
+    x: number,
+    y: number,
+    radius = 9,
+    getAssetDef: (assetId: string) => ObjectDefinition | null
+  ): boolean {
+    // Check map boundary
+    if (
+      x < radius ||
+      x > this.width * this.tileSize - radius ||
+      y < radius ||
+      y > this.height * this.tileSize - radius
+    ) {
+      return true;
+    }
+
+    if (this.checkTileCollision(x, y, radius)) return true;
+    if (this.checkObjectCollision(x, y, radius, getAssetDef)) return true;
+
+    return false;
+  }
+
+  /**
+   * Calculates player movement with sliding along collision boundaries
+   */
+  movePlayerWithCollision(
+    curX: number,
+    curY: number,
+    dx: number,
+    dy: number,
+    radius = 9,
+    getAssetDef: (assetId: string) => ObjectDefinition | null
+  ): { x: number; y: number } {
+    const targetX = curX + dx;
+    const targetY = curY + dy;
+
+    // 1. Try moving full diagonal / direct step
+    if (!this.checkCollision(targetX, targetY, radius, getAssetDef)) {
+      return { x: targetX, y: targetY };
+    }
+
+    // 2. Try moving along X axis only (sliding)
+    if (dx !== 0 && !this.checkCollision(targetX, curY, radius, getAssetDef)) {
+      return { x: targetX, y: curY };
+    }
+
+    // 3. Try moving along Y axis only (sliding)
+    if (dy !== 0 && !this.checkCollision(curX, targetY, radius, getAssetDef)) {
+      return { x: curX, y: targetY };
+    }
+
+    // 4. Blocked completely
+    return { x: curX, y: curY };
+  }
+
+  /**
    * Pure calculation of flood fill changes without mutating internal state.
    * Returns list of changes ready for PaintTilesCommand.
    */

@@ -3,11 +3,32 @@
  * Bottom status bar showing live coordinates, tile, chunk, zoom, active tool, saved/dirty state and FPS.
  */
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useEditor } from '../core/EditorContext';
 
 export const StatusBar: React.FC = () => {
-  const { cursorInfo, zoomPercent, state, map, fps } = useEditor();
+  const { zoomPercent, state, map } = useEditor();
+  const [fps, setFps] = useState(60);
+
+  // Local FPS counter isolated to StatusBar only
+  useEffect(() => {
+    let frameCount = 0;
+    let lastTime = performance.now();
+    let animId: number;
+
+    const loop = (currentTime: number) => {
+      frameCount++;
+      if (currentTime - lastTime >= 1000) {
+        setFps(Math.round((frameCount * 1000) / (currentTime - lastTime)));
+        frameCount = 0;
+        lastTime = currentTime;
+      }
+      animId = requestAnimationFrame(loop);
+    };
+
+    animId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(animId);
+  }, []);
 
   return (
     <footer
@@ -18,15 +39,15 @@ export const StatusBar: React.FC = () => {
         <div className="flex items-center gap-1.5 font-mono">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
           <span>Cursor:</span>
-          <span className="text-[#f0f3f8]">
-            X: {cursorInfo.worldX} Y: {cursorInfo.worldY}
+          <span id="status-cursor-coords" className="text-[#f0f3f8]">
+            X: 0 Y: 0
           </span>
         </div>
         <div className="font-mono">
-          Tile: <span className="text-[#f0f3f8]">[{cursorInfo.tileX}, {cursorInfo.tileY}]</span>
+          Tile: <span id="status-tile-coords" className="text-[#f0f3f8]">[0, 0]</span>
         </div>
         <div className="hidden sm:block font-mono">
-          Chunk: <span className="text-[#f0f3f8]">[{cursorInfo.chunkX}, {cursorInfo.chunkY}]</span>
+          Chunk: <span id="status-chunk-coords" className="text-[#f0f3f8]">[0, 0]</span>
         </div>
         <div className="hidden md:flex items-center gap-1.5">
           <span className={`w-2 h-2 rounded-full ${state.dirty ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}`} />

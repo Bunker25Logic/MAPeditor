@@ -38,6 +38,11 @@ export class PixiRenderer implements Renderer {
   private isGridDirty = true;
   private isCollisionDirty = true;
 
+  // RAF Scheduling
+  private rafId: number | null = null;
+  private pendingMap: GameMap | null = null;
+  private pendingState: Readonly<EditorStateModel> | null = null;
+
   // Player avatar state
   private playerPos = { x: 33 * 32, y: 32 * 32 };
   private playerSprite: PIXI.Sprite | null = null;
@@ -161,6 +166,20 @@ export class PixiRenderer implements Renderer {
     this.worldContainer.scale.set(this.camera.zoom, this.camera.zoom);
   }
 
+  scheduleRender(map: GameMap, state: Readonly<EditorStateModel>): void {
+    this.pendingMap = map;
+    this.pendingState = state;
+
+    if (this.rafId === null) {
+      this.rafId = requestAnimationFrame(() => {
+        this.rafId = null;
+        if (this.pendingMap && this.pendingState) {
+          this.render(this.pendingMap, this.pendingState);
+        }
+      });
+    }
+  }
+
   render(map: GameMap, state: Readonly<EditorStateModel>): void {
     if (!this.app || !this.worldContainer) return;
 
@@ -184,7 +203,7 @@ export class PixiRenderer implements Renderer {
       this.areObjectsDirty = false;
     }
 
-    if (this.isCollisionDirty) {
+    if (this.isCollisionDirty || state.collisionVisible) {
       this.renderCollision(map, state.collisionVisible);
       this.isCollisionDirty = false;
     }
@@ -389,7 +408,7 @@ export class PixiRenderer implements Renderer {
     this.collisionGraphics.clear();
     if (!visible) return;
 
-    // Tile grid collisions
+    // 1. Tile grid collisions (Red semi-transparent)
     this.collisionGraphics.beginFill(0xef4444, 0.35);
     for (let y = 0; y < map.height; y++) {
       for (let x = 0; x < map.width; x++) {
@@ -404,6 +423,50 @@ export class PixiRenderer implements Renderer {
       }
     }
     this.collisionGraphics.endFill();
+
+    // 2. Object collision boxes (Amber/Orange with border)
+    for (const obj of map.objects) {
+      if (obj.collision === false) continue;
+
+      const def = this.getObjectDef(obj.asset);
+      const colBox = obj.collisionBox || def?.collisionBox;
+      if (!colBox) continue;
+
+      const halfW = colBox.width / 2;
+      const halfH = colBox.height / 2;
+      const minX = colBox.offsetX - halfW;
+      const maxX = colBox.offsetX + halfW;
+      const minY = colBox.offsetY - halfH;
+      const maxY = colBox.offsetY + halfH;
+
+      const cos = Math.cos(obj.rotation || 0);
+      const sin = Math.sin(obj.rotation || 0);
+      const sx = obj.scaleX || 1;
+      const sy = obj.scaleY || 1;
+
+      const transformLocalToWorld = (lx: number, ly: number) => {
+        const scaledX = lx * sx;
+        const scaledY = ly * sy;
+        return {
+          x: obj.x + (scaledX * cos - scaledY * sin),
+          y: obj.y + (scaledX * sin + scaledY * cos)
+        };
+      };
+
+      const p1 = transformLocalToWorld(minX, minY);
+      const p2 = transformLocalToWorld(maxX, minY);
+      const p3 = transformLocalToWorld(maxX, maxY);
+      const p4 = transformLocalToWorld(minX, maxY);
+
+      this.collisionGraphics.lineStyle(1.5, 0xd97706, 0.95);
+      this.collisionGraphics.beginFill(0xf59e0b, 0.45);
+      this.collisionGraphics.moveTo(p1.x, p1.y);
+      this.collisionGraphics.lineTo(p2.x, p2.y);
+      this.collisionGraphics.lineTo(p3.x, p3.y);
+      this.collisionGraphics.lineTo(p4.x, p4.y);
+      this.collisionGraphics.closePath();
+      this.collisionGraphics.endFill();
+    }
   }
 
   private renderGizmo(map: GameMap, state: Readonly<EditorStateModel>): void {

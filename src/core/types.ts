@@ -17,10 +17,10 @@ export type EditorTool =
 export type EditorLayer = 'terrain' | 'objects' | 'collision';
 
 export interface CollisionBox {
-  x: number;
-  y: number;
   width: number;
   height: number;
+  offsetX: number;
+  offsetY: number;
 }
 
 export interface MapObject {
@@ -46,7 +46,8 @@ export interface ObjectDefinition {
   height: number;
   anchorX: number;
   anchorY: number;
-  collision: {
+  collision: boolean;
+  collisionBox: {
     width: number;
     height: number;
     offsetX: number;
@@ -61,6 +62,20 @@ export interface TerrainChunk {
   tiles: (string | null)[];
 }
 
+export interface CustomAssetData {
+  id: string;
+  type: 'terrain' | 'object';
+  name: string;
+  category?: string;
+  width: number;
+  height: number;
+  anchorX?: number;
+  anchorY?: number;
+  collision?: boolean;
+  collisionBox?: CollisionBox;
+  dataUrl: string;
+}
+
 export interface MapData {
   format: 'bunker25-map';
   version: number;
@@ -72,6 +87,7 @@ export interface MapData {
   terrain: (string | null)[][];
   objects: MapObject[];
   collision: number[][];
+  customAssets?: CustomAssetData[];
   metadata: {
     name?: string;
     createdAt?: string;

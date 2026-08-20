@@ -13,7 +13,7 @@ export class EditorState {
 
   constructor(initial?: Partial<EditorStateModel>) {
     this.state = {
-      activeTool: 'select',
+      activeTool: 'paint',
       activeLayer: 'terrain',
       selectedTerrainId: 'grass',
       selectedObjectId: null,
@@ -48,11 +48,15 @@ export class EditorState {
     let changed = false;
     for (const key of Object.keys(partial) as (keyof EditorStateModel)[]) {
       if (this.state[key] !== partial[key]) {
-        (this.state as unknown as Record<string, unknown>)[key] = partial[key];
         changed = true;
+        break;
       }
     }
     if (changed) {
+      this.state = {
+        ...this.state,
+        ...partial
+      };
       this.notify();
     }
   }

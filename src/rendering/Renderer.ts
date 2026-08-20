@@ -13,6 +13,7 @@ export interface Renderer {
   init(container: HTMLElement): Promise<void>;
   resize(width: number, height: number): void;
   render(map: GameMap, state: Readonly<EditorStateModel>): void;
+  scheduleRender(map: GameMap, state: Readonly<EditorStateModel>): void;
   destroy(): void;
 
   // Layer specific updates

@@ -43,21 +43,23 @@ export const Viewport: React.FC = () => {
   const playerPosRef = useRef({ x: 33 * 32, y: 32 * 32 });
   const cursorRafRef = useRef<number | null>(null);
 
-  // Virtual / Keyboard step for player mode
+  // Virtual / Keyboard step for player mode with full sliding collision against tiles and objects
   const stepPlayer = useCallback((dx: number, dy: number) => {
-    const stepDist = 24;
-    const newX = Math.max(16, Math.min(map.width * map.tileSize - 16, playerPosRef.current.x + dx * stepDist));
-    const newY = Math.max(16, Math.min(map.height * map.tileSize - 16, playerPosRef.current.y + dy * stepDist));
+    const stepDist = 16;
+    const moved = map.movePlayerWithCollision(
+      playerPosRef.current.x,
+      playerPosRef.current.y,
+      dx * stepDist,
+      dy * stepDist,
+      10,
+      id => renderer.getObjectDef(id)
+    );
 
-    // Check collision if present
-    const tilePos = map.worldToTile(newX, newY);
-    if (!map.getCollision(tilePos.tx, tilePos.ty)) {
-      playerPosRef.current.x = newX;
-      playerPosRef.current.y = newY;
-    }
+    playerPosRef.current.x = moved.x;
+    playerPosRef.current.y = moved.y;
 
     renderer.setPlayerPosition(playerPosRef.current.x, playerPosRef.current.y);
-    renderer.render(map, editorState.current);
+    renderer.scheduleRender(map, editorState.current);
   }, [map, renderer, editorState]);
 
   // Handle keyboard inputs for WASD player control & arrow hotkeys
@@ -121,6 +123,39 @@ export const Viewport: React.FC = () => {
     renderer.render(map, state);
   }, [state.playerMode, renderer, map, state]);
 
+  // Apply painting stroke at tile coordinates
+  const applyPaint = (tx: number, ty: number) => {
+    const terrainId = editorState.current.selectedTerrainId;
+    if (!terrainId) return;
+
+    const brushSize = editorState.current.brushSize || 1;
+    const radius = Math.floor((brushSize - 1) / 2);
+    let changed = false;
+
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        const curTx = tx + dx;
+        const curTy = ty + dy;
+        if (map.inBounds(curTx, curTy)) {
+          const oldId = map.getTile(curTx, curTy);
+          if (oldId !== terrainId) {
+            const key = `${curTx}_${curTy}`;
+            if (!paintStrokeChangesRef.current.has(key)) {
+              paintStrokeChangesRef.current.set(key, { tx: curTx, ty: curTy, oldId, newId: terrainId });
+            }
+            map.setTile(curTx, curTy, terrainId);
+            changed = true;
+          }
+        }
+      }
+    }
+
+    if (changed) {
+      renderer.invalidateTerrain();
+      renderer.render(map, editorState.current);
+    }
+  };
+
   // Handle pointer down
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     const container = containerRef.current;
@@ -159,14 +194,8 @@ export const Viewport: React.FC = () => {
     // Left click tool actions
     if (e.button === 0) {
       if (state.activeTool === 'paint') {
-        const oldTile = map.getTile(tx, ty);
-        if (oldTile !== state.selectedTerrainId && map.inBounds(tx, ty)) {
-          paintStrokeChangesRef.current.clear();
-          paintStrokeChangesRef.current.set(`${tx}_${ty}`, { tx, ty, oldId: oldTile, newId: state.selectedTerrainId });
-          map.setTile(tx, ty, state.selectedTerrainId);
-          renderer.invalidateTerrain();
-          renderer.render(map, editorState.current);
-        }
+        paintStrokeChangesRef.current.clear();
+        applyPaint(tx, ty);
       } else if (state.activeTool === 'fill') {
         const changes = map.calculateFloodFill(tx, ty, state.selectedTerrainId);
         if (changes.length > 0) {
@@ -218,6 +247,12 @@ export const Viewport: React.FC = () => {
           if (state.selectedObjectId === hit.id) {
             setSelectedObject(null);
           }
+        } else if (map.inBounds(tx, ty)) {
+          const oldTile = map.getTile(tx, ty);
+          if (oldTile !== 'grass') {
+            const cmd = new PaintTilesCommand(map, [{ tx, ty, oldId: oldTile, newId: 'grass' }], 'Erase Tile');
+            executeCommand(cmd);
+          }
         }
       }
     }
@@ -243,7 +278,7 @@ export const Viewport: React.FC = () => {
       const dx = screenX - renderer.camera.dragStartX;
       const dy = screenY - renderer.camera.dragStartY;
       renderer.camera.setPosition(renderer.camera.startCamX + dx, renderer.camera.startCamY + dy);
-      renderer.render(map, editorState.current);
+      renderer.scheduleRender(map, editorState.current);
       return;
     }
 
@@ -252,19 +287,11 @@ export const Viewport: React.FC = () => {
       const { tx, ty } = map.worldToTile(wx, wy);
 
       if (state.activeTool === 'paint') {
-        const oldTile = map.getTile(tx, ty);
-        if (oldTile !== state.selectedTerrainId && map.inBounds(tx, ty)) {
-          if (!paintStrokeChangesRef.current.has(`${tx}_${ty}`)) {
-            paintStrokeChangesRef.current.set(`${tx}_${ty}`, { tx, ty, oldId: oldTile, newId: state.selectedTerrainId });
-            map.setTile(tx, ty, state.selectedTerrainId);
-            renderer.invalidateTerrain();
-            renderer.render(map, editorState.current);
-          }
-        }
+        applyPaint(tx, ty);
       } else if (state.activeTool === 'select' && isDraggingObjectRef.current && state.selectedObjectId) {
         map.updateObject(state.selectedObjectId, { x: Math.round(wx), y: Math.round(wy) });
         renderer.invalidateObjects();
-        renderer.render(map, editorState.current);
+        renderer.scheduleRender(map, editorState.current);
       }
     }
   };
@@ -330,7 +357,7 @@ export const Viewport: React.FC = () => {
 
     const factor = e.deltaY < 0 ? 1.15 : 0.85;
     renderer.camera.zoomBy(factor, screenX, screenY);
-    renderer.render(map, editorState.current);
+    renderer.scheduleRender(map, editorState.current);
   };
 
   return (

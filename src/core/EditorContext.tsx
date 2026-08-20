@@ -39,9 +39,7 @@ export interface EditorContextValue {
   canUndo: boolean;
   canRedo: boolean;
   selectedObject: MapObject | null;
-  cursorInfo: CursorInfo;
   zoomPercent: number;
-  fps: number;
   visibleObjectsCount: number;
   totalObjectsCount: number;
 
@@ -101,37 +99,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // UI status states
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
-  const [cursorInfo, setCursorInfo] = useState<CursorInfo>({
-    worldX: 0,
-    worldY: 0,
-    tileX: 0,
-    tileY: 0,
-    chunkX: 0,
-    chunkY: 0
-  });
   const [zoomPercent, setZoomPercent] = useState(100);
-  const [fps, setFps] = useState(60);
   const [totalObjectsCount, setTotalObjectsCount] = useState(0);
-
-  // Live FPS measurement loop
-  useEffect(() => {
-    let frameCount = 0;
-    let lastTime = performance.now();
-    let animId: number;
-
-    const loop = (currentTime: number) => {
-      frameCount++;
-      if (currentTime - lastTime >= 1000) {
-        setFps(Math.round((frameCount * 1000) / (currentTime - lastTime)));
-        frameCount = 0;
-        lastTime = currentTime;
-      }
-      animId = requestAnimationFrame(loop);
-    };
-
-    animId = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(animId);
-  }, []);
 
   // History state updater (includes dirty flag synchronization)
   const updateHistoryState = useCallback(() => {
@@ -225,7 +194,12 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   );
 
   const loadMapData = useCallback(
-    (data: MapData) => {
+    async (data: MapData) => {
+      // Restore custom imported assets first if present in map file
+      if (data.customAssets && data.customAssets.length > 0) {
+        await renderer.assetManager.importCustomAssets(data.customAssets);
+      }
+
       const newMap = new GameMap({
         width: data.width,
         height: data.height,
@@ -254,6 +228,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const saveMapJSON = useCallback(() => {
     const data = map.toJSON();
+    data.customAssets = renderer.assetManager.exportCustomAssets();
     const str = JSON.stringify(data, null, 2);
     const blob = new Blob([str], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -265,7 +240,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     history.markSaved();
     updateHistoryState();
-  }, [map, history, updateHistoryState]);
+  }, [map, history, updateHistoryState, renderer]);
 
   const exportPNG = useCallback(() => {
     if (!renderer.app) return;
@@ -386,14 +361,17 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const cx = Math.floor(tx / map.chunkSize);
       const cy = Math.floor(ty / map.chunkSize);
 
-      setCursorInfo({
-        worldX: Math.round(wx),
-        worldY: Math.round(wy),
-        tileX: tx,
-        tileY: ty,
-        chunkX: cx,
-        chunkY: cy
-      });
+      const rX = Math.round(wx);
+      const rY = Math.round(wy);
+
+      const elCursor = document.getElementById('status-cursor-coords');
+      if (elCursor) elCursor.textContent = `X: ${rX} Y: ${rY}`;
+
+      const elTile = document.getElementById('status-tile-coords');
+      if (elTile) elTile.textContent = `[${tx}, ${ty}]`;
+
+      const elChunk = document.getElementById('status-chunk-coords');
+      if (elChunk) elChunk.textContent = `[${cx}, ${cy}]`;
     },
     [renderer, map]
   );
@@ -407,9 +385,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     canUndo,
     canRedo,
     selectedObject,
-    cursorInfo,
     zoomPercent,
-    fps,
     visibleObjectsCount: map.objects.length,
     totalObjectsCount,
 

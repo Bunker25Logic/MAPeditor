@@ -41,9 +41,10 @@ export const PaletteSidebar: React.FC<{ isOpen: boolean; onClose: () => void }> 
   const { state, setSelectedTerrain, setSelectedAsset, setTool, renderer } = useEditor();
   const [activeTab, setActiveTab] = useState<'terrain' | 'objects'>('terrain');
   const [thumbnails, setThumbnails] = useState<{ [key: string]: string }>({});
+  const [customObjectsList, setCustomObjectsList] = useState<Array<{ id: string; name: string; category: string; size: string }>>([]);
 
-  // Fetch real PNG thumbnails from AssetManager
-  useEffect(() => {
+  // Fetch real PNG thumbnails and dynamic objects from AssetManager
+  const refreshAssets = () => {
     const map: { [key: string]: string } = {};
     if (renderer && renderer.assetManager) {
       for (const t of TERRAINS) {
@@ -54,8 +55,29 @@ export const PaletteSidebar: React.FC<{ isOpen: boolean; onClose: () => void }> 
         const thumb = renderer.assetManager.getObjectThumbnail(obj.id);
         if (thumb) map[`o_${obj.id}`] = thumb;
       }
+
+      // Read custom objects from asset manager
+      const allRegistered = renderer.assetManager.getAllObjects();
+      const customOnes: Array<{ id: string; name: string; category: string; size: string }> = [];
+      for (const reg of allRegistered) {
+        if (reg.id.startsWith('custom_')) {
+          const thumb = renderer.assetManager.getObjectThumbnail(reg.id);
+          if (thumb) map[`o_${reg.id}`] = thumb;
+          customOnes.push({
+            id: reg.id,
+            name: reg.name,
+            category: reg.category || 'Importados',
+            size: `${reg.width}x${reg.height}`
+          });
+        }
+      }
+      setCustomObjectsList(customOnes);
       setThumbnails(map);
     }
+  };
+
+  useEffect(() => {
+    refreshAssets();
   }, [renderer]);
 
   const handleSelectTerrain = (id: string) => {
@@ -71,6 +93,8 @@ export const PaletteSidebar: React.FC<{ isOpen: boolean; onClose: () => void }> 
       setTool('object');
     }
   };
+
+  const allDisplayObjects = [...OBJECTS, ...customObjectsList];
 
   return (
     <aside
@@ -154,7 +178,7 @@ export const PaletteSidebar: React.FC<{ isOpen: boolean; onClose: () => void }> 
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-2">
-            {OBJECTS.map(obj => {
+            {allDisplayObjects.map(obj => {
               const isSelected = state.selectedObjectAsset === obj.id;
               const thumbUrl = thumbnails[`o_${obj.id}`];
               return (
@@ -218,17 +242,12 @@ export const PaletteSidebar: React.FC<{ isOpen: boolean; onClose: () => void }> 
                   if (res && res.id) {
                     if (type === 'terrain') {
                       setSelectedTerrain(res.id);
-                      setThumbnails(prev => ({
-                        ...prev,
-                        [`t_${res.id}`]: renderer.assetManager.getTerrainThumbnail(res.id)
-                      }));
+                      setTool('paint');
                     } else {
                       setSelectedAsset(res.id);
-                      setThumbnails(prev => ({
-                        ...prev,
-                        [`o_${res.id}`]: renderer.assetManager.getObjectThumbnail(res.id)
-                      }));
+                      setTool('object');
                     }
+                    refreshAssets();
                   }
                 }
               }}
