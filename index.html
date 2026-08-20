@@ -7,7 +7,7 @@
   <meta name="description" content="Protótipo funcional de editor de mapas 2D para MMO RPG com camadas de terreno e objetos, Y-depth sorting e PixiJS." />
   
   <!-- Editor Stylesheet -->
-  <link rel="stylesheet" href="/css/editor.css" />
+  <link rel="stylesheet" href="./css/editor.css" />
 </head>
 <body>
   <div id="app-container">
@@ -233,6 +233,13 @@
           <button class="drawer-close-btn" id="btn-close-sidebar-left" title="Fechar Paleta">&times;</button>
         </div>
 
+        <!-- Quick Map Actions for Mobile Drawer -->
+        <div class="drawer-quick-actions" style="padding: 8px; background-color: var(--bg-card); border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 6px;">
+          <button class="btn-pill" style="flex: 1; font-size: 10px; padding: 4px 6px; justify-content: center;" onclick="document.getElementById('menu-action-new').click()">+ Novo</button>
+          <button class="btn-pill" style="flex: 1; font-size: 10px; padding: 4px 6px; justify-content: center;" onclick="document.getElementById('menu-action-center').click()">🎯 Centrar</button>
+          <button class="btn-pill" style="flex: 1; font-size: 10px; padding: 4px 6px; justify-content: center;" onclick="document.getElementById('menu-action-help').click()">❓ Ajuda</button>
+        </div>
+
         <div class="sidebar-tabs">
           <div class="sidebar-tab active" id="tab-terrain">TERRENO (TILES)</div>
           <div class="sidebar-tab" id="tab-objects">OBJETOS (SPRITES)</div>
@@ -452,6 +459,6 @@
   </div>
 
   <!-- Main ES Module Bootstrapper -->
-  <script type="module" src="/js/main.js"></script>
+  <script type="module" src="./js/main.js"></script>
 </body>
 </html>

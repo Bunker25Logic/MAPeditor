@@ -886,6 +886,8 @@ input:checked + .slider-toggle:before {
   cursor: pointer;
   touch-action: manipulation;
   transition: all 0.15s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .mobile-nav-btn:hover, .mobile-nav-btn:active {
@@ -1049,14 +1051,34 @@ input:checked + .slider-toggle:before {
 /* Mobile Screens (<= 820px) */
 @media (max-width: 820px) {
   :root {
-    --topbar-height: 48px;
-    --toolbar-height: 52px;
-    --statusbar-height: 32px;
+    --topbar-height: 50px;
+    --toolbar-height: 50px;
+    --statusbar-height: 30px;
+  }
+
+  /* Header structure without overflow */
+  #menu-bar {
+    padding: 0 8px;
+    gap: 6px;
+    overflow-x: hidden;
+  }
+
+  .menu-left {
+    gap: 4px;
+    flex-shrink: 1;
+    min-width: 0;
+  }
+
+  .menu-right {
+    gap: 4px;
+    flex-shrink: 0;
   }
 
   /* Show mobile header toggle buttons */
   .mobile-nav-btn {
     display: inline-flex;
+    padding: 6px 8px;
+    font-size: 11px;
   }
 
   .drawer-close-btn {
@@ -1064,9 +1086,30 @@ input:checked + .slider-toggle:before {
   }
 
   .app-brand {
-    padding-right: 8px;
+    padding-right: 6px;
     margin-right: 2px;
-    font-size: 13px;
+    font-size: 12px;
+    border-right: none;
+  }
+
+  .app-brand span:first-child {
+    display: none; /* Hide 'MMO MAPPER' text, keep badge only on mobile */
+  }
+
+  .app-brand .brand-badge {
+    font-size: 11px;
+    padding: 3px 6px;
+  }
+
+  /* Hide default desktop dropdowns on mobile to keep top bar clean */
+  .menu-dropdown {
+    display: none;
+  }
+
+  .btn-pill {
+    padding: 6px 8px;
+    font-size: 11px;
+    gap: 4px;
   }
 
   /* Sidebars become full-featured slide-out drawers */
@@ -1101,46 +1144,94 @@ input:checked + .slider-toggle:before {
     transform: translateX(0);
   }
 
-  /* Make Toolbar touch-scrollable and fingers-friendly */
+  /* Make Toolbar touch-scrollable without clipping */
   #toolbar {
     overflow-x: auto;
     overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
     padding: 0 8px;
-    gap: 8px;
+    gap: 6px;
     justify-content: flex-start;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+  }
+
+  #toolbar::-webkit-scrollbar {
+    display: none;
   }
 
   .tool-group {
     flex-shrink: 0;
+    gap: 3px;
   }
 
   .tool-btn {
-    min-width: 44px;
-    min-height: 40px;
+    min-width: 38px;
+    min-height: 38px;
     justify-content: center;
-    padding: 8px 12px;
+    padding: 6px 8px;
+    font-size: 11px;
+    flex-shrink: 0;
   }
 
-  /* Larger touch targets in palettes */
+  .tool-btn span {
+    display: none; /* Icon-only toolbar on mobile for optimal density */
+  }
+
+  .tool-btn.player-mode-btn span {
+    display: none;
+  }
+
+  .toolbar-divider {
+    margin: 0 3px;
+    height: 18px;
+  }
+
+  /* Mobile Palette Layout: Single or Dual Column Grid */
   .palette-grid {
-    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
-    gap: 8px;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
   }
 
   .asset-card {
     padding: 6px;
-    min-height: 80px;
+    min-height: 76px;
   }
 
   .asset-preview-container {
-    height: 48px;
+    height: 44px;
+  }
+
+  /* Mobile Property Inputs */
+  .prop-row {
+    padding: 6px 8px;
+    gap: 6px;
+  }
+
+  .prop-label {
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+
+  .prop-input {
+    width: 60px;
+    font-size: 11px;
+    padding: 4px 6px;
+  }
+
+  .prop-input.wide {
+    width: 110px;
   }
 
   /* Status Bar simplification */
   #status-bar {
     padding: 0 8px;
     font-size: 10px;
+    overflow-x: hidden;
+  }
+
+  .status-section {
+    gap: 8px;
   }
 
   #status-chunk, #status-fps {
@@ -1148,46 +1239,82 @@ input:checked + .slider-toggle:before {
   }
 
   .player-mode-hud {
-    font-size: 11px;
-    padding: 6px 12px;
-    width: 90%;
-    text-align: center;
-    justify-content: center;
+    font-size: 10px;
+    padding: 5px 10px;
+    max-width: 90vw;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Quick Viewport Zoom Controls Placement */
+  .viewport-overlay-controls {
+    top: auto;
+    bottom: 14px;
+    right: 12px;
+  }
+
+  .overlay-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  /* Modal Windows */
+  .modal-window {
+    width: 94vw;
+    max-width: 94vw;
+    max-height: 85vh;
+  }
+
+  .modal-body {
+    padding: 12px;
+    max-height: 60vh;
   }
 }
 
 /* Small Smartphone Screens (<= 480px) */
 @media (max-width: 480px) {
-  .menu-btn {
-    display: none; /* Hide top dropdown buttons, accessible via drawer or toolbars */
-  }
-
   #btn-quick-import .btn-text, #btn-quick-export .btn-text {
     display: none;
   }
 
   .btn-pill {
-    padding: 6px 10px;
-    min-height: 38px;
+    padding: 5px 8px;
+    min-height: 34px;
+  }
+
+  .mobile-nav-btn .btn-text {
+    display: none; /* Icon-only nav buttons */
+  }
+
+  .mobile-nav-btn {
+    padding: 6px;
+    min-width: 34px;
+    justify-content: center;
   }
 
   #status-coords {
-    font-size: 10px;
+    font-size: 9px;
   }
 
   #status-zoom {
-    font-size: 10px;
+    font-size: 9px;
+  }
+
+  #status-objects {
+    font-size: 9px;
+  }
+
+  .virtual-dpad-container {
+    bottom: 12px;
+    left: 12px;
+    transform: scale(0.88);
+    transform-origin: bottom left;
   }
 
   .viewport-overlay-controls {
-    bottom: 20px;
-    top: auto;
-    right: 12px;
-  }
-
-  .overlay-btn {
-    width: 40px;
-    height: 40px;
+    bottom: 12px;
+    right: 10px;
   }
 }
 
