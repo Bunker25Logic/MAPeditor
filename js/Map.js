@@ -6,6 +6,8 @@
  *  - OBJECTS (free-coordinate spatial entities with anchors and collision)
  */
 
+import { IdGenerator } from './IdGenerator.js';
+
 export class GameMap {
   constructor(options = {}) {
     this.version = 1;
@@ -111,18 +113,18 @@ export class GameMap {
      ========================================================================= */
 
   addObject(objData) {
-    const id = objData.id || `obj_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+    const id = objData.id || IdGenerator.generate('obj');
     const obj = {
       id,
       asset: objData.asset,
-      x: objData.x !== undefined ? objData.x : 0,
-      y: objData.y !== undefined ? objData.y : 0,
-      scaleX: objData.scaleX !== undefined ? objData.scaleX : 1,
-      scaleY: objData.scaleY !== undefined ? objData.scaleY : 1,
-      rotation: objData.rotation !== undefined ? objData.rotation : 0,
-      anchorX: objData.anchorX !== undefined ? objData.anchorX : 0.5,
-      anchorY: objData.anchorY !== undefined ? objData.anchorY : 1.0,
-      collision: objData.collision !== undefined ? objData.collision : true,
+      x: typeof objData.x === 'number' && Number.isFinite(objData.x) ? objData.x : 0,
+      y: typeof objData.y === 'number' && Number.isFinite(objData.y) ? objData.y : 0,
+      scaleX: typeof objData.scaleX === 'number' && Number.isFinite(objData.scaleX) ? objData.scaleX : 1,
+      scaleY: typeof objData.scaleY === 'number' && Number.isFinite(objData.scaleY) ? objData.scaleY : 1,
+      rotation: typeof objData.rotation === 'number' && Number.isFinite(objData.rotation) ? objData.rotation : 0,
+      anchorX: typeof objData.anchorX === 'number' && Number.isFinite(objData.anchorX) ? objData.anchorX : 0.5,
+      anchorY: typeof objData.anchorY === 'number' && Number.isFinite(objData.anchorY) ? objData.anchorY : 1.0,
+      collision: objData.collision !== undefined ? Boolean(objData.collision) : true,
       collisionBox: objData.collisionBox ? { ...objData.collisionBox } : null,
       customProps: objData.customProps ? { ...objData.customProps } : {}
     };
@@ -156,7 +158,8 @@ export class GameMap {
   }
 
   /**
-   * Finds the topmost object at world coordinates (wx, wy) based on visual bounding/hitbox
+   * Finds the topmost object at world coordinates (wx, wy) based on exact visual bounding/hitbox,
+   * accounting for position, rotation, scale, and anchor.
    */
   findObjectAt(wx, wy, assetManager) {
     // Traverse from highest depth / newest to find clicked object
@@ -165,15 +168,35 @@ export class GameMap {
       const def = assetManager.getObjectDef(obj.asset);
       if (!def) continue;
 
-      const w = def.width * Math.abs(obj.scaleX);
-      const h = def.height * Math.abs(obj.scaleY);
-      
-      const left = obj.x - w * obj.anchorX;
-      const top = obj.y - h * obj.anchorY;
-      const right = left + w;
-      const bottom = top + h;
+      const w = def.width;
+      const h = def.height;
+      if (w <= 0 || h <= 0) continue;
 
-      if (wx >= left && wx <= right && wy >= top && wy <= bottom) {
+      const scaleX = obj.scaleX || 1;
+      const scaleY = obj.scaleY || 1;
+      const rot = obj.rotation || 0;
+
+      // 1. Translate point to object origin
+      const dx = wx - obj.x;
+      const dy = wy - obj.y;
+
+      // 2. Rotate point by inverse rotation angle (-rot)
+      const cos = Math.cos(-rot);
+      const sin = Math.sin(-rot);
+      const rx = dx * cos - dy * sin;
+      const ry = dx * sin + dy * cos;
+
+      // 3. Unscale point to get local unscaled coordinates
+      const localX = rx / scaleX;
+      const localY = ry / scaleY;
+
+      // 4. Test against local unscaled bounds determined by anchor
+      const minX = -w * (obj.anchorX !== undefined ? obj.anchorX : 0.5);
+      const maxX = minX + w;
+      const minY = -h * (obj.anchorY !== undefined ? obj.anchorY : 1.0);
+      const maxY = minY + h;
+
+      if (localX >= minX && localX <= maxX && localY >= minY && localY <= maxY) {
         return obj;
       }
     }

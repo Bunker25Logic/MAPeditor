@@ -50,9 +50,49 @@ export class InputManager {
     el.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
     el.addEventListener('contextmenu', (e) => e.preventDefault());
 
+    // Window focus & blur reset to prevent stuck keys and drag locks
+    window.addEventListener('blur', () => this.resetInputStates());
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.resetInputStates();
+    });
+
     // Keyboard events
     window.addEventListener('keydown', (e) => this.onKeyDown(e));
     window.addEventListener('keyup', (e) => this.onKeyUp(e));
+  }
+
+  resetInputStates() {
+    this.isPointerDown = false;
+    this.isDraggingObject = false;
+    this.dragObjectInitialState = null;
+    this.activePointers.clear();
+    this.isPinching = false;
+    this.lastPinchDist = null;
+    this.lastPinchMid = null;
+
+    this.isSpacePressed = false;
+    this.isShiftPressed = false;
+    this.isAltPressed = false;
+    this.isCtrlPressed = false;
+
+    if (this.editor?.camera) {
+      this.editor.camera.isDragging = false;
+    }
+    if (this.viewportEl) {
+      this.viewportEl.classList.remove('is-panning');
+    }
+    if (this.editor?.objectManager) {
+      this.editor.objectManager.playerKeys = {
+        w: false,
+        a: false,
+        s: false,
+        d: false,
+        up: false,
+        left: false,
+        down: false,
+        right: false
+      };
+    }
   }
 
   setTool(tool) {
@@ -94,6 +134,14 @@ export class InputManager {
 
     this.isPointerDown = true;
     this.pointerButton = e.button;
+
+    try {
+      if (this.viewportEl.setPointerCapture) {
+        this.viewportEl.setPointerCapture(e.pointerId);
+      }
+    } catch {
+      // Ignore pointer capture exceptions on non-compatible pointer events
+    }
 
     const rect = this.viewportEl.getBoundingClientRect();
     const screenX = e.clientX - rect.left;
@@ -234,6 +282,14 @@ export class InputManager {
   }
 
   onPointerUp(e) {
+    try {
+      if (this.viewportEl.hasPointerCapture && this.viewportEl.hasPointerCapture(e.pointerId)) {
+        this.viewportEl.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      // Safe fallback
+    }
+
     this.activePointers.delete(e.pointerId);
 
     if (this.activePointers.size < 2) {
@@ -276,6 +332,14 @@ export class InputManager {
   }
 
   onPointerCancel(e) {
+    try {
+      if (this.viewportEl.hasPointerCapture && this.viewportEl.hasPointerCapture(e.pointerId)) {
+        this.viewportEl.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      // Safe fallback
+    }
+
     this.activePointers.delete(e.pointerId);
     if (this.activePointers.size < 2) {
       this.isPinching = false;

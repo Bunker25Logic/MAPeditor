@@ -11,6 +11,7 @@ export class AssetManager {
     this.terrains = new Map();
     this.objects = new Map();
     this.customAssets = new Map();
+    this.thumbnailCache = new Map();
     this.initialized = false;
   }
 
@@ -178,10 +179,40 @@ export class AssetManager {
     // Special avatar for interactive walk test
     this.playerTexture = this.createPlayerTexture();
 
+    if (!this.thumbnailCache) this.thumbnailCache = new Map();
     this.initialized = true;
   }
 
+  getTerrainThumbnail(id) {
+    if (!this.thumbnailCache) this.thumbnailCache = new Map();
+    if (this.thumbnailCache.has(`terrain_${id}`)) {
+      return this.thumbnailCache.get(`terrain_${id}`);
+    }
+    const t = this.getTerrain(id);
+    if (t && t.canvas && typeof t.canvas.toDataURL === 'function') {
+      const url = t.canvas.toDataURL('image/png');
+      this.thumbnailCache.set(`terrain_${id}`, url);
+      return url;
+    }
+    return '';
+  }
+
+  getObjectThumbnail(id) {
+    if (!this.thumbnailCache) this.thumbnailCache = new Map();
+    if (this.thumbnailCache.has(`object_${id}`)) {
+      return this.thumbnailCache.get(`object_${id}`);
+    }
+    const obj = this.getObjectDef(id);
+    if (obj && obj.canvas && typeof obj.canvas.toDataURL === 'function') {
+      const url = obj.canvas.toDataURL('image/png');
+      this.thumbnailCache.set(`object_${id}`, url);
+      return url;
+    }
+    return '';
+  }
+
   registerTerrain(id, name, canvas) {
+    if (!this.thumbnailCache) this.thumbnailCache = new Map();
     const texture = PIXI.Texture.from(canvas);
     this.terrains.set(id, {
       id,
@@ -191,9 +222,13 @@ export class AssetManager {
       canvas,
       texture
     });
+    if (canvas && typeof canvas.toDataURL === 'function') {
+      this.thumbnailCache.set(`terrain_${id}`, canvas.toDataURL('image/png'));
+    }
   }
 
   registerObject(id, data) {
+    if (!this.thumbnailCache) this.thumbnailCache = new Map();
     const texture = PIXI.Texture.from(data.texture);
     this.objects.set(id, {
       id,
@@ -208,6 +243,9 @@ export class AssetManager {
       canvas: data.texture,
       texture
     });
+    if (data.texture && typeof data.texture.toDataURL === 'function') {
+      this.thumbnailCache.set(`object_${id}`, data.texture.toDataURL('image/png'));
+    }
   }
 
   getTerrain(id) {

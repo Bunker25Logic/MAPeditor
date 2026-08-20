@@ -147,23 +147,59 @@ export class UI {
       });
     }
 
-    // Inspector Inputs Live Binding
+    // Inspector Inputs Live Binding & Atomic History Commit
+    let inspectorInitialState = null;
+
+    const parseNumeric = (val, fallback) => {
+      const num = Number(val);
+      return Number.isFinite(num) ? num : fallback;
+    };
+
     const updateObjFromInputs = () => {
       const selected = this.editor.objectManager.getSelectedObject();
       if (!selected) return;
 
+      if (!inspectorInitialState) {
+        inspectorInitialState = { ...selected };
+      }
+
+      const rotDeg = Number(this.dom.inpObjRot.value);
       const changes = {
-        x: parseFloat(this.dom.inpObjX.value) || selected.x,
-        y: parseFloat(this.dom.inpObjY.value) || selected.y,
-        scaleX: parseFloat(this.dom.inpObjScaleX.value) || selected.scaleX,
-        scaleY: parseFloat(this.dom.inpObjScaleY.value) || selected.scaleY,
-        rotation: (parseFloat(this.dom.inpObjRot.value) * Math.PI) / 180 || selected.rotation,
-        anchorX: parseFloat(this.dom.inpObjAnchorX.value) || selected.anchorX,
-        anchorY: parseFloat(this.dom.inpObjAnchorY.value) || selected.anchorY,
-        collision: this.dom.inpObjCollision.checked
+        x: parseNumeric(this.dom.inpObjX.value, selected.x),
+        y: parseNumeric(this.dom.inpObjY.value, selected.y),
+        scaleX: parseNumeric(this.dom.inpObjScaleX.value, selected.scaleX),
+        scaleY: parseNumeric(this.dom.inpObjScaleY.value, selected.scaleY),
+        rotation: Number.isFinite(rotDeg) ? (rotDeg * Math.PI) / 180 : selected.rotation,
+        anchorX: parseNumeric(this.dom.inpObjAnchorX.value, selected.anchorX),
+        anchorY: parseNumeric(this.dom.inpObjAnchorY.value, selected.anchorY),
+        collision: Boolean(this.dom.inpObjCollision.checked)
       };
 
       this.editor.objectManager.updateSelectedTransform(changes);
+    };
+
+    const commitInspectorChanges = () => {
+      const selected = this.editor.objectManager.getSelectedObject();
+      if (selected && inspectorInitialState && this.editor.history) {
+        const hasChanged = 
+          inspectorInitialState.x !== selected.x ||
+          inspectorInitialState.y !== selected.y ||
+          inspectorInitialState.scaleX !== selected.scaleX ||
+          inspectorInitialState.scaleY !== selected.scaleY ||
+          inspectorInitialState.rotation !== selected.rotation ||
+          inspectorInitialState.anchorX !== selected.anchorX ||
+          inspectorInitialState.anchorY !== selected.anchorY ||
+          inspectorInitialState.collision !== selected.collision;
+
+        if (hasChanged) {
+          this.editor.history.push({
+            type: 'OBJECT_TRANSFORM',
+            oldState: { ...inspectorInitialState },
+            newState: { ...selected }
+          });
+        }
+      }
+      inspectorInitialState = null;
     };
 
     [
@@ -175,11 +211,23 @@ export class UI {
       this.dom.inpObjAnchorX,
       this.dom.inpObjAnchorY
     ].forEach(inp => {
-      if (inp) inp.addEventListener('input', updateObjFromInputs);
+      if (inp) {
+        inp.addEventListener('focus', () => {
+          const selected = this.editor.objectManager.getSelectedObject();
+          if (selected) inspectorInitialState = { ...selected };
+        });
+        inp.addEventListener('input', updateObjFromInputs);
+        inp.addEventListener('blur', commitInspectorChanges);
+      }
     });
 
     if (this.dom.inpObjCollision) {
-      this.dom.inpObjCollision.addEventListener('change', updateObjFromInputs);
+      this.dom.inpObjCollision.addEventListener('change', () => {
+        const selected = this.editor.objectManager.getSelectedObject();
+        if (selected) inspectorInitialState = { ...selected };
+        updateObjFromInputs();
+        commitInspectorChanges();
+      });
     }
 
     if (this.dom.btnDeleteSelected) {
@@ -615,9 +663,13 @@ export class UI {
 
     document.getElementById('modal-cancel-btn').addEventListener('click', () => this.closeModal());
     document.getElementById('modal-create-map-btn').addEventListener('click', () => {
-      const w = parseInt(document.getElementById('new-map-width').value) || 64;
-      const h = parseInt(document.getElementById('new-map-height').value) || 64;
+      let rawW = parseInt(document.getElementById('new-map-width').value, 10);
+      let rawH = parseInt(document.getElementById('new-map-height').value, 10);
+      
+      const w = Number.isInteger(rawW) ? Math.max(16, Math.min(rawW, 512)) : 64;
+      const h = Number.isInteger(rawH) ? Math.max(16, Math.min(rawH, 512)) : 64;
       const terrain = document.getElementById('new-map-terrain').value || 'grass';
+      
       this.editor.createNewMap(w, h, terrain);
       this.closeModal();
     });
