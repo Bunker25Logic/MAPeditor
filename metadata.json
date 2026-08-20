@@ -1,0 +1,6 @@
+{
+  "name": "MMO 2D Map Editor",
+  "description": "Protótipo funcional de editor de mapas 2D para MMO com camadas independentes de terreno e objetos, Y-depth sorting e PixiJS.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
