@@ -132,6 +132,26 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [fps, setFps] = useState(60);
   const [totalObjectsCount, setTotalObjectsCount] = useState(0);
 
+  // Live FPS measurement loop
+  useEffect(() => {
+    let frameCount = 0;
+    let lastTime = performance.now();
+    let animId: number;
+
+    const loop = (currentTime: number) => {
+      frameCount++;
+      if (currentTime - lastTime >= 1000) {
+        setFps(Math.round((frameCount * 1000) / (currentTime - lastTime)));
+        frameCount = 0;
+        lastTime = currentTime;
+      }
+      animId = requestAnimationFrame(loop);
+    };
+
+    animId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(animId);
+  }, []);
+
   // Subscribe to EditorState changes
   useEffect(() => {
     const unsub = editorState.subscribe(newState => {

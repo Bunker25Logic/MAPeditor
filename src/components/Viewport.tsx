@@ -33,6 +33,57 @@ export const Viewport: React.FC = () => {
 
   // Player position state for player mode
   const playerPosRef = useRef({ x: 33 * 32, y: 32 * 32 });
+  const cursorRafRef = useRef<number | null>(null);
+
+  // Virtual / Keyboard step for player mode
+  const stepPlayer = useCallback((dx: number, dy: number) => {
+    const stepDist = 24;
+    const newX = Math.max(16, Math.min(map.width * map.tileSize - 16, playerPosRef.current.x + dx * stepDist));
+    const newY = Math.max(16, Math.min(map.height * map.tileSize - 16, playerPosRef.current.y + dy * stepDist));
+
+    // Check collision if present
+    const tilePos = map.worldToTile(newX, newY);
+    if (!map.getCollision(tilePos.tx, tilePos.ty)) {
+      playerPosRef.current.x = newX;
+      playerPosRef.current.y = newY;
+    }
+
+    renderer.setPlayerPosition(playerPosRef.current.x, playerPosRef.current.y);
+    renderer.camera.centerOnWorld(playerPosRef.current.x, playerPosRef.current.y);
+    renderer.render(map, editorState.current);
+  }, [map, renderer, editorState]);
+
+  // Player mode keyboard event listener (WASD / Arrows)
+  useEffect(() => {
+    if (!state.playerMode) return;
+
+    renderer.setPlayerPosition(playerPosRef.current.x, playerPosRef.current.y);
+    renderer.render(map, editorState.current);
+
+    const handlePlayerKeys = (e: KeyboardEvent) => {
+      if (['input', 'textarea', 'select'].includes((document.activeElement?.tagName || '').toLowerCase())) {
+        return;
+      }
+      if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        stepPlayer(0, -1);
+      } else if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        stepPlayer(0, 1);
+      } else if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        stepPlayer(-1, 0);
+      } else if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        stepPlayer(1, 0);
+      } else if (e.key === 'Escape') {
+        editorState.togglePlayerMode();
+      }
+    };
+
+    window.addEventListener('keydown', handlePlayerKeys);
+    return () => window.removeEventListener('keydown', handlePlayerKeys);
+  }, [state.playerMode, stepPlayer, renderer, map, editorState]);
 
   // Initialize Pixi application inside the DOM node on mount
   useEffect(() => {
@@ -186,7 +237,12 @@ export const Viewport: React.FC = () => {
     const screenX = e.clientX - rect.left;
     const screenY = e.clientY - rect.top;
 
-    updateCursorCoords(screenX, screenY);
+    if (cursorRafRef.current === null) {
+      cursorRafRef.current = requestAnimationFrame(() => {
+        updateCursorCoords(screenX, screenY);
+        cursorRafRef.current = null;
+      });
+    }
 
     if (renderer.camera.isDragging) {
       const dx = screenX - renderer.camera.dragStartX;
@@ -265,14 +321,6 @@ export const Viewport: React.FC = () => {
 
     const factor = e.deltaY < 0 ? 1.15 : 0.85;
     renderer.camera.zoomBy(factor, screenX, screenY);
-    renderer.render(map, editorState.current);
-  };
-
-  // Virtual D-Pad step for player mode
-  const stepPlayer = (dx: number, dy: number) => {
-    playerPosRef.current.x += dx * 16;
-    playerPosRef.current.y += dy * 16;
-    renderer.camera.centerOnWorld(playerPosRef.current.x, playerPosRef.current.y);
     renderer.render(map, editorState.current);
   };
 

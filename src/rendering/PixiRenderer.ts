@@ -32,11 +32,15 @@ export class PixiRenderer implements Renderer {
 
   // Terrain chunk rendering cache { `${cx}_${cy}`: PIXI.Container }
   private chunkContainers: Map<string, PIXI.Container> = new Map();
-
-  private isTerrainDirty = true;
+  private dirtyChunks: Set<string> = new Set();
+  private isAllTerrainDirty = true;
   private areObjectsDirty = true;
   private isGridDirty = true;
   private isCollisionDirty = true;
+
+  // Player avatar state
+  private playerPos = { x: 33 * 32, y: 32 * 32 };
+  private playerSprite: PIXI.Sprite | null = null;
 
   constructor() {
     this.camera = new Camera(() => this.updateCameraTransform());
@@ -103,7 +107,7 @@ export class PixiRenderer implements Renderer {
       this.app.stage.addChild(this.rootContainer);
     }
 
-    this.isTerrainDirty = true;
+    this.isAllTerrainDirty = true;
     this.areObjectsDirty = true;
     this.isGridDirty = true;
     this.isCollisionDirty = true;
@@ -123,8 +127,20 @@ export class PixiRenderer implements Renderer {
     return (this.assetManager.getObjectDef(assetId) as unknown as ObjectDefinition) || null;
   }
 
-  invalidateTerrain(): void {
-    this.isTerrainDirty = true;
+  invalidateTerrain(chunkKey?: string): void {
+    if (chunkKey) {
+      this.dirtyChunks.add(chunkKey);
+    } else {
+      this.isAllTerrainDirty = true;
+      this.dirtyChunks.clear();
+    }
+  }
+
+  setPlayerPosition(x: number, y: number): void {
+    this.playerPos = { x, y };
+    if (this.playerSprite) {
+      this.playerSprite.position.set(x, y);
+    }
   }
 
   invalidateObjects(): void {
@@ -150,9 +166,12 @@ export class PixiRenderer implements Renderer {
 
     this.updateCameraTransform();
 
-    if (this.isTerrainDirty) {
+    if (this.isAllTerrainDirty || this.dirtyChunks.size > 0) {
       this.renderTerrain(map);
-      this.isTerrainDirty = false;
+      this.isAllTerrainDirty = false;
+      this.dirtyChunks.clear();
+    } else {
+      this.cullTerrainChunks(map);
     }
 
     if (this.isGridDirty) {
@@ -170,48 +189,96 @@ export class PixiRenderer implements Renderer {
       this.isCollisionDirty = false;
     }
 
+    this.renderPlayer(state.playerMode);
     this.renderGizmo(map, state);
     this.app.render();
+  }
+
+  private cullTerrainChunks(map: GameMap): void {
+    const bounds = this.camera.getViewportBounds(64);
+    const chunkSizePx = (map.chunkSize || 16) * map.tileSize;
+
+    for (const [key, container] of this.chunkContainers.entries()) {
+      const [cxStr, cyStr] = key.split('_');
+      const cx = parseInt(cxStr, 10);
+      const cy = parseInt(cyStr, 10);
+      const chunkLeft = cx * chunkSizePx;
+      const chunkTop = cy * chunkSizePx;
+      const chunkRight = chunkLeft + chunkSizePx;
+      const chunkBottom = chunkTop + chunkSizePx;
+
+      const isVisible =
+        chunkRight >= bounds.minX &&
+        chunkLeft <= bounds.maxX &&
+        chunkBottom >= bounds.minY &&
+        chunkTop <= bounds.maxY;
+
+      container.visible = isVisible;
+    }
   }
 
   private renderTerrain(map: GameMap): void {
     if (!this.terrainContainer) return;
 
-    // Clear chunk containers
-    this.terrainContainer.removeChildren();
-    this.chunkContainers.clear();
-
     const chunkSize = map.chunkSize || 16;
     const numChunksX = Math.ceil(map.width / chunkSize);
     const numChunksY = Math.ceil(map.height / chunkSize);
+    const bounds = this.camera.getViewportBounds(64);
+    const chunkSizePx = chunkSize * map.tileSize;
+
+    const rebuildAll = this.isAllTerrainDirty;
 
     for (let cy = 0; cy < numChunksY; cy++) {
       for (let cx = 0; cx < numChunksX; cx++) {
-        const chunkCont = new PIXI.Container();
-        const startX = cx * chunkSize;
-        const startY = cy * chunkSize;
-        const endX = Math.min(startX + chunkSize, map.width);
-        const endY = Math.min(startY + chunkSize, map.height);
+        const chunkKey = `${cx}_${cy}`;
+        const chunkLeft = cx * chunkSizePx;
+        const chunkTop = cy * chunkSizePx;
+        const chunkRight = chunkLeft + chunkSizePx;
+        const chunkBottom = chunkTop + chunkSizePx;
 
-        for (let y = startY; y < endY; y++) {
-          for (let x = startX; x < endX; x++) {
-            const tileId = map.getTile(x, y);
-            if (!tileId) continue;
+        const isVisible =
+          chunkRight >= bounds.minX &&
+          chunkLeft <= bounds.maxX &&
+          chunkBottom >= bounds.minY &&
+          chunkTop <= bounds.maxY;
 
-            const terrainDef = this.assetManager.getTerrain(tileId);
-            if (!terrainDef || !terrainDef.texture) continue;
+        let chunkCont = this.chunkContainers.get(chunkKey);
 
-            const sprite = new PIXI.Sprite(terrainDef.texture);
-            sprite.x = x * map.tileSize;
-            sprite.y = y * map.tileSize;
-            sprite.width = map.tileSize;
-            sprite.height = map.tileSize;
-            chunkCont.addChild(sprite);
+        if (rebuildAll || this.dirtyChunks.has(chunkKey) || !chunkCont) {
+          if (!chunkCont) {
+            chunkCont = new PIXI.Container();
+            this.chunkContainers.set(chunkKey, chunkCont);
+            this.terrainContainer.addChild(chunkCont);
+          } else {
+            chunkCont.removeChildren();
+          }
+
+          const startX = cx * chunkSize;
+          const startY = cy * chunkSize;
+          const endX = Math.min(startX + chunkSize, map.width);
+          const endY = Math.min(startY + chunkSize, map.height);
+
+          for (let y = startY; y < endY; y++) {
+            for (let x = startX; x < endX; x++) {
+              const tileId = map.getTile(x, y);
+              if (!tileId) continue;
+
+              const terrainDef = this.assetManager.getTerrain(tileId);
+              if (!terrainDef || !terrainDef.texture) continue;
+
+              const sprite = new PIXI.Sprite(terrainDef.texture);
+              sprite.x = x * map.tileSize;
+              sprite.y = y * map.tileSize;
+              sprite.width = map.tileSize;
+              sprite.height = map.tileSize;
+              chunkCont.addChild(sprite);
+            }
           }
         }
 
-        this.chunkContainers.set(`${cx}_${cy}`, chunkCont);
-        this.terrainContainer.addChild(chunkCont);
+        if (chunkCont) {
+          chunkCont.visible = isVisible;
+        }
       }
     }
   }
@@ -284,6 +351,40 @@ export class PixiRenderer implements Renderer {
     }
   }
 
+  private renderPlayer(active: boolean): void {
+    if (!this.playerGraphics) return;
+    this.playerGraphics.clear();
+
+    if (!active) {
+      if (this.playerSprite) {
+        this.playerSprite.visible = false;
+      }
+      return;
+    }
+
+    // Draw player shadow
+    this.playerGraphics.beginFill(0x000000, 0.4);
+    this.playerGraphics.drawEllipse(this.playerPos.x, this.playerPos.y, 10, 4);
+    this.playerGraphics.endFill();
+
+    // Draw player sprite if available
+    if (this.assetManager.playerTexture) {
+      if (!this.playerSprite) {
+        const tex = PIXI.Texture.from(this.assetManager.playerTexture);
+        this.playerSprite = new PIXI.Sprite(tex);
+        this.playerSprite.anchor.set(0.5, 0.9);
+        this.worldContainer?.addChild(this.playerSprite);
+      }
+      this.playerSprite.visible = true;
+      this.playerSprite.position.set(this.playerPos.x, this.playerPos.y);
+    } else {
+      // Fallback stylized character marker
+      this.playerGraphics.beginFill(0x10b981, 0.9);
+      this.playerGraphics.drawCircle(this.playerPos.x, this.playerPos.y - 12, 8);
+      this.playerGraphics.endFill();
+    }
+  }
+
   private renderCollision(map: GameMap, visible: boolean): void {
     if (!this.collisionGraphics) return;
     this.collisionGraphics.clear();
@@ -317,9 +418,46 @@ export class PixiRenderer implements Renderer {
     const def = this.getObjectDef(obj.asset);
     if (!def) return;
 
-    // Draw selection box
+    const width = (def.width || 32) * Math.abs(obj.scaleX);
+    const height = (def.height || 32) * Math.abs(obj.scaleY);
+    const ax = obj.anchorX !== undefined ? obj.anchorX : (def.anchorX ?? 0.5);
+    const ay = obj.anchorY !== undefined ? obj.anchorY : (def.anchorY ?? 1.0);
+
+    const left = -ax * width;
+    const top = -ay * height;
+
+    // Draw selection bounding rectangle with rotation
     this.gizmoGraphics.lineStyle(1.5, 0x38bdf8, 0.9);
     
+    // Compute corner points rotated around object center
+    const cos = Math.cos(obj.rotation);
+    const sin = Math.sin(obj.rotation);
+
+    const transformPoint = (px: number, py: number) => ({
+      x: obj.x + (px * cos - py * sin),
+      y: obj.y + (px * sin + py * cos)
+    });
+
+    const p1 = transformPoint(left, top);
+    const p2 = transformPoint(left + width, top);
+    const p3 = transformPoint(left + width, top + height);
+    const p4 = transformPoint(left, top + height);
+
+    // Draw box
+    this.gizmoGraphics.moveTo(p1.x, p1.y);
+    this.gizmoGraphics.lineTo(p2.x, p2.y);
+    this.gizmoGraphics.lineTo(p3.x, p3.y);
+    this.gizmoGraphics.lineTo(p4.x, p4.y);
+    this.gizmoGraphics.closePath();
+
+    // Draw selection corner handles
+    this.gizmoGraphics.beginFill(0x38bdf8, 1);
+    const handleSize = 4;
+    [p1, p2, p3, p4].forEach(p => {
+      this.gizmoGraphics?.drawRect(p.x - handleSize / 2, p.y - handleSize / 2, handleSize, handleSize);
+    });
+    this.gizmoGraphics.endFill();
+
     // Draw anchor cross
     if (state.anchorsVisible) {
       this.gizmoGraphics.lineStyle(1.5, 0xef4444, 1.0);
