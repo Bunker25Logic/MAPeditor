@@ -4,7 +4,6 @@
  */
 
 import * as PIXI from 'pixi.js';
-import '../css/editor.css';
 import { Editor } from './Editor.js';
 
 // Expose PIXI globally for legacy / debug access
