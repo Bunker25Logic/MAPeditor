@@ -1,6 +1,6 @@
 /**
  * src/core/history/History.ts
- * Manages the undo/redo stacks of Commands.
+ * Manages the undo/redo stacks of Commands and tracks dirty state relative to saves.
  */
 
 import { Command } from './Command';
@@ -9,6 +9,8 @@ export class History {
   private undoStack: Command[] = [];
   private redoStack: Command[] = [];
   private maxHistory: number;
+  private savedStepId: number = 0;
+  private currentStepId: number = 0;
   public onStateChange?: () => void;
 
   constructor(maxHistory = 50, onStateChange?: () => void) {
@@ -26,13 +28,20 @@ export class History {
    */
   execute(command: Command): void {
     command.execute();
-    this.push(command);
+    this.currentStepId++;
+    this.undoStack.push(command);
+    if (this.undoStack.length > this.maxHistory) {
+      this.undoStack.shift();
+    }
+    this.redoStack = [];
+    this.notify();
   }
 
   /**
    * Directly pushes an already executed command to the undo stack.
    */
   push(command: Command): void {
+    this.currentStepId++;
     this.undoStack.push(command);
     if (this.undoStack.length > this.maxHistory) {
       this.undoStack.shift();
@@ -46,6 +55,7 @@ export class History {
     if (!cmd) return false;
 
     cmd.undo();
+    this.currentStepId--;
     this.redoStack.push(cmd);
     this.notify();
     return true;
@@ -60,6 +70,7 @@ export class History {
     } else {
       cmd.execute();
     }
+    this.currentStepId++;
     this.undoStack.push(cmd);
     this.notify();
     return true;
@@ -68,7 +79,18 @@ export class History {
   clear(): void {
     this.undoStack = [];
     this.redoStack = [];
+    this.savedStepId = 0;
+    this.currentStepId = 0;
     this.notify();
+  }
+
+  markSaved(): void {
+    this.savedStepId = this.currentStepId;
+    this.notify();
+  }
+
+  isDirty(): boolean {
+    return this.currentStepId !== this.savedStepId;
   }
 
   canUndo(): boolean {

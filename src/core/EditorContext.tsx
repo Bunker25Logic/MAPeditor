@@ -1,6 +1,7 @@
 /**
  * src/core/EditorContext.tsx
  * React Context provider connecting Core, GameMap, PixiRenderer, History and EditorState.
+ * Guarantees strict UI -> Command -> GameMap -> Renderer flow with 100% undo/redo and dirty tracking.
  */
 
 import React, { createContext, useContext, useEffect, useState, useRef, useMemo, useCallback } from 'react';
@@ -13,7 +14,9 @@ import { Command } from './history/Command';
 import {
   AddObjectCommand,
   RemoveObjectCommand,
-  TransformObjectCommand
+  TransformObjectCommand,
+  BatchAddObjectsCommand,
+  ClearObjectsCommand
 } from './history/commands/ObjectCommands';
 import { PaintTilesCommand } from './history/commands/PaintTilesCommand';
 import { ResizeMapCommand } from './history/commands/ResizeMapCommand';
@@ -68,56 +71,34 @@ export interface EditorContextValue {
 
 const EditorContext = createContext<EditorContextValue | null>(null);
 
-export function useEditor(): EditorContextValue {
+export const useEditor = (): EditorContextValue => {
   const ctx = useContext(EditorContext);
   if (!ctx) {
     throw new Error('useEditor must be used within an EditorProvider');
   }
   return ctx;
-}
+};
 
 export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [map, setMap] = useState<GameMap>(() => {
-    const initialMap = new GameMap({ width: 64, height: 64, defaultTerrain: 'grass' });
-    // Seed sample dirt path across center
-    for (let x = 20; x <= 44; x++) {
-      initialMap.setTile(x, 32, 'dirt');
-      initialMap.setTile(x, 33, 'dirt');
-    }
-    // Seed small stone plaza
-    for (let x = 30; x <= 34; x++) {
-      for (let y = 30; y <= 35; y++) {
-        initialMap.setTile(x, y, 'stone');
-      }
-    }
-    // Seed sample pond
-    for (let x = 12; x <= 18; x++) {
-      for (let y = 12; y <= 18; y++) {
-        if (Math.hypot(x - 15, y - 15) <= 3.2) {
-          initialMap.setTile(x, y, 'water');
-        }
-      }
-    }
-    // Seed sample trees & objects
-    initialMap.addObject({ asset: 'house_wood', x: 32 * 32, y: 28 * 32, scaleX: 1, scaleY: 1 });
-    initialMap.addObject({ asset: 'lamp_post', x: 29 * 32, y: 34 * 32, scaleX: 1, scaleY: 1 });
-    initialMap.addObject({ asset: 'lamp_post', x: 35 * 32, y: 34 * 32, scaleX: 1, scaleY: 1 });
-    initialMap.addObject({ asset: 'chest', x: 34 * 32, y: 31 * 32, scaleX: 1, scaleY: 1 });
-    initialMap.addObject({ asset: 'barrel', x: 30 * 32, y: 31 * 32, scaleX: 1, scaleY: 1 });
-    initialMap.addObject({ asset: 'tree_oak', x: 24 * 32, y: 28 * 32, scaleX: 1.1, scaleY: 1.1 });
-    initialMap.addObject({ asset: 'tree_oak', x: 40 * 32, y: 28 * 32, scaleX: 1.05, scaleY: 1.05 });
-    initialMap.addObject({ asset: 'tree_pine', x: 22 * 32, y: 36 * 32, scaleX: 1.0, scaleY: 1.0 });
-    initialMap.addObject({ asset: 'tree_pine', x: 42 * 32, y: 36 * 32, scaleX: 1.0, scaleY: 1.0 });
-    initialMap.addObject({ asset: 'rock_large', x: 18 * 32, y: 22 * 32, scaleX: 1, scaleY: 1 });
-    initialMap.addObject({ asset: 'bush', x: 26 * 32, y: 34 * 32, scaleX: 1, scaleY: 1 });
-    initialMap.addObject({ asset: 'bush', x: 38 * 32, y: 34 * 32, scaleX: 1, scaleY: 1 });
-    return initialMap;
-  });
-  const [editorState] = useState<EditorState>(() => new EditorState());
-  const [state, setState] = useState<Readonly<EditorStateModel>>(() => editorState.current);
-  const [renderer] = useState<PixiRenderer>(() => new PixiRenderer());
-  const [history] = useState<History>(() => new History(50));
+  // Core Map instance
+  const [map, setMap] = useState<GameMap>(() => new GameMap({ width: 64, height: 64, defaultTerrain: 'grass' }));
 
+  // Observable editor state
+  const editorStateRef = useRef<EditorState>(new EditorState());
+  const editorState = editorStateRef.current;
+
+  // React state mirroring EditorState
+  const [state, setState] = useState<Readonly<EditorStateModel>>(() => editorState.current);
+
+  // Undo/Redo command history
+  const historyRef = useRef<History>(new History(100));
+  const history = historyRef.current;
+
+  // Pixi Renderer instance
+  const rendererRef = useRef<PixiRenderer>(new PixiRenderer());
+  const renderer = rendererRef.current;
+
+  // UI status states
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [cursorInfo, setCursorInfo] = useState<CursorInfo>({
@@ -152,6 +133,13 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return () => cancelAnimationFrame(animId);
   }, []);
 
+  // History state updater (includes dirty flag synchronization)
+  const updateHistoryState = useCallback(() => {
+    setCanUndo(history.canUndo());
+    setCanRedo(history.canRedo());
+    editorState.setDirty(history.isDirty());
+  }, [history, editorState]);
+
   // Subscribe to EditorState changes
   useEffect(() => {
     const unsub = editorState.subscribe(newState => {
@@ -161,14 +149,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return unsub;
   }, [editorState, renderer, map]);
 
-  // History state updater
-  const updateHistoryState = useCallback(() => {
-    setCanUndo(history.canUndo());
-    setCanRedo(history.canRedo());
-  }, [history]);
-
   useEffect(() => {
-    // Connect history notification
     history.setOnStateChange(updateHistoryState);
   }, [history, updateHistoryState]);
 
@@ -229,6 +210,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const newMap = new GameMap({ width, height, defaultTerrain });
       setMap(newMap);
       history.clear();
+      history.markSaved();
       updateHistoryState();
       editorState.setSelectedObject(null);
       renderer.invalidateTerrain();
@@ -256,6 +238,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       setMap(newMap);
       history.clear();
+      history.markSaved();
       updateHistoryState();
       editorState.setSelectedObject(null);
       renderer.invalidateTerrain();
@@ -279,7 +262,10 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     a.download = `mmo_map_${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [map]);
+
+    history.markSaved();
+    updateHistoryState();
+  }, [map, history, updateHistoryState]);
 
   const exportPNG = useCallback(() => {
     if (!renderer.app) return;
@@ -296,17 +282,9 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const fillAllTerrain = useCallback(
     (terrainId: string) => {
-      const changes: Array<{ tx: number; ty: number; oldId: string | null; newId: string }> = [];
-      for (let y = 0; y < map.height; y++) {
-        for (let x = 0; x < map.width; x++) {
-          const old = map.getTile(x, y);
-          if (old !== terrainId) {
-            changes.push({ tx: x, ty: y, oldId: old, newId: terrainId });
-          }
-        }
-      }
+      const changes = map.calculateFillAll(terrainId);
       if (changes.length > 0) {
-        const cmd = new PaintTilesCommand(map, changes);
+        const cmd = new PaintTilesCommand(map, changes, 'Fill All Terrain');
         executeCommand(cmd);
       }
     },
@@ -315,54 +293,49 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const clearAllObjects = useCallback(() => {
     if (map.objects.length === 0) return;
-    const toRemove = [...map.objects];
-    for (const obj of toRemove) {
-      map.removeObject(obj.id);
-    }
+    const cmd = new ClearObjectsCommand(map);
+    executeCommand(cmd);
     editorState.setSelectedObject(null);
-    renderer.invalidateObjects();
-    renderer.render(map, editorState.current);
-    setTotalObjectsCount(0);
-  }, [map, editorState, renderer]);
+  }, [map, executeCommand, editorState]);
 
   const generateForest = useCallback(() => {
     const assets = ['tree_oak', 'tree_pine', 'bush'];
+    const objectsData: Array<Partial<MapObject> & { asset: string }> = [];
     for (let i = 0; i < 25; i++) {
       const x = Math.random() * (map.width * map.tileSize);
       const y = Math.random() * (map.height * map.tileSize);
       const asset = assets[Math.floor(Math.random() * assets.length)];
-      map.addObject({
+      objectsData.push({
         asset,
-        x,
-        y,
-        scaleX: 0.9 + Math.random() * 0.2,
-        scaleY: 0.9 + Math.random() * 0.2,
-        rotation: (Math.random() - 0.5) * 0.1
+        x: Math.round(x),
+        y: Math.round(y),
+        scaleX: Number((0.9 + Math.random() * 0.2).toFixed(2)),
+        scaleY: Number((0.9 + Math.random() * 0.2).toFixed(2)),
+        rotation: Number(((Math.random() - 0.5) * 0.1).toFixed(3))
       });
     }
-    renderer.invalidateObjects();
-    renderer.render(map, editorState.current);
-    setTotalObjectsCount(map.objects.length);
-  }, [map, renderer, editorState]);
+    const cmd = new BatchAddObjectsCommand(map, objectsData, 'Generate Forest');
+    executeCommand(cmd);
+  }, [map, executeCommand]);
 
   const generateRocks = useCallback(() => {
     const assets = ['rock_large', 'rock_small'];
+    const objectsData: Array<Partial<MapObject> & { asset: string }> = [];
     for (let i = 0; i < 20; i++) {
       const x = Math.random() * (map.width * map.tileSize);
       const y = Math.random() * (map.height * map.tileSize);
       const asset = assets[Math.floor(Math.random() * assets.length)];
-      map.addObject({
+      objectsData.push({
         asset,
-        x,
-        y,
-        scaleX: 0.85 + Math.random() * 0.3,
-        scaleY: 0.85 + Math.random() * 0.3
+        x: Math.round(x),
+        y: Math.round(y),
+        scaleX: Number((0.85 + Math.random() * 0.3).toFixed(2)),
+        scaleY: Number((0.85 + Math.random() * 0.3).toFixed(2))
       });
     }
-    renderer.invalidateObjects();
-    renderer.render(map, editorState.current);
-    setTotalObjectsCount(map.objects.length);
-  }, [map, renderer, editorState]);
+    const cmd = new BatchAddObjectsCommand(map, objectsData, 'Generate Rocks');
+    executeCommand(cmd);
+  }, [map, executeCommand]);
 
   const centerCamera = useCallback(() => {
     renderer.camera.centerOnWorld((map.width * map.tileSize) / 2, (map.height * map.tileSize) / 2);
@@ -382,23 +355,29 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const updateSelectedTransform = useCallback(
     (changes: Partial<MapObject>) => {
       if (!state.selectedObjectId) return;
-      map.updateObject(state.selectedObjectId, changes);
-      renderer.invalidateObjects();
-      renderer.render(map, editorState.current);
+      const obj = map.getObject(state.selectedObjectId);
+      if (!obj) return;
+      const oldState: Partial<MapObject> = {};
+      const newState: Partial<MapObject> = {};
+      for (const key of Object.keys(changes) as (keyof MapObject)[]) {
+        (oldState as any)[key] = obj[key];
+        (newState as any)[key] = changes[key];
+      }
+      const cmd = new TransformObjectCommand(map, state.selectedObjectId, oldState, newState);
+      executeCommand(cmd);
     },
-    [state.selectedObjectId, map, renderer, editorState]
+    [state.selectedObjectId, map, executeCommand]
   );
 
   const deleteSelectedObject = useCallback(() => {
     if (!state.selectedObjectId) return;
-    const removed = map.removeObject(state.selectedObjectId);
-    if (removed) {
+    const obj = map.getObject(state.selectedObjectId);
+    if (obj) {
+      const cmd = new RemoveObjectCommand(map, obj);
+      executeCommand(cmd);
       editorState.setSelectedObject(null);
-      renderer.invalidateObjects();
-      renderer.render(map, editorState.current);
-      setTotalObjectsCount(map.objects.length);
     }
-  }, [state.selectedObjectId, map, editorState, renderer]);
+  }, [state.selectedObjectId, map, executeCommand, editorState]);
 
   const updateCursorCoords = useCallback(
     (screenX: number, screenY: number) => {

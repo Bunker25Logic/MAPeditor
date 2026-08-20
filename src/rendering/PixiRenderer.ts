@@ -10,7 +10,7 @@ import { Camera } from './Camera';
 import { DepthSorter } from './DepthSorter';
 import { GameMap } from '../core/map/GameMap';
 import { EditorStateModel, ObjectDefinition, MapObject } from '../core/types';
-import { AssetManager } from '../../js/AssetManager.js';
+import { AssetManager } from '../assets/AssetManager';
 
 export class PixiRenderer implements Renderer {
   public camera: Camera;
@@ -370,8 +370,7 @@ export class PixiRenderer implements Renderer {
     // Draw player sprite if available
     if (this.assetManager.playerTexture) {
       if (!this.playerSprite) {
-        const tex = PIXI.Texture.from(this.assetManager.playerTexture);
-        this.playerSprite = new PIXI.Sprite(tex);
+        this.playerSprite = new PIXI.Sprite(this.assetManager.playerTexture);
         this.playerSprite.anchor.set(0.5, 0.9);
         this.worldContainer?.addChild(this.playerSprite);
       }

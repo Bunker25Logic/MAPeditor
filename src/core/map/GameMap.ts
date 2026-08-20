@@ -187,7 +187,11 @@ export class GameMap {
     return null;
   }
 
-  floodFill(
+  /**
+   * Pure calculation of flood fill changes without mutating internal state.
+   * Returns list of changes ready for PaintTilesCommand.
+   */
+  calculateFloodFill(
     startTx: number,
     startTy: number,
     targetTerrain: string,
@@ -212,7 +216,6 @@ export class GameMap {
 
       if (this.terrain[cy][cx] === initialTerrain) {
         changes.push({ tx: cx, ty: cy, oldId: initialTerrain, newId: targetTerrain });
-        this.terrain[cy][cx] = targetTerrain;
 
         if (cx > 0 && !visited[cy * this.width + (cx - 1)]) queue.push([cx - 1, cy]);
         if (cx < this.width - 1 && !visited[cy * this.width + (cx + 1)]) queue.push([cx + 1, cy]);
@@ -221,6 +224,35 @@ export class GameMap {
       }
     }
 
+    return changes;
+  }
+
+  /**
+   * Pure calculation of filling all map tiles with a specific terrain without mutating state.
+   */
+  calculateFillAll(targetTerrain: string): Array<{ tx: number; ty: number; oldId: string | null; newId: string }> {
+    const changes: Array<{ tx: number; ty: number; oldId: string | null; newId: string }> = [];
+    for (let y = 0; y < this.height; y++) {
+      for (let x = 0; x < this.width; x++) {
+        const oldId = this.terrain[y][x];
+        if (oldId !== targetTerrain) {
+          changes.push({ tx: x, ty: y, oldId, newId: targetTerrain });
+        }
+      }
+    }
+    return changes;
+  }
+
+  floodFill(
+    startTx: number,
+    startTy: number,
+    targetTerrain: string,
+    maxSteps = 65536
+  ): Array<{ tx: number; ty: number; oldId: string | null; newId: string }> {
+    const changes = this.calculateFloodFill(startTx, startTy, targetTerrain, maxSteps);
+    for (const c of changes) {
+      this.terrain[c.ty][c.tx] = c.newId;
+    }
     return changes;
   }
 

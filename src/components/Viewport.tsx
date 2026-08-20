@@ -1,12 +1,18 @@
 /**
  * src/components/Viewport.tsx
  * PixiJS viewport canvas container with touch/mouse interaction, floating HUD, and D-Pad controls.
+ * Adheres strictly to UI -> Command -> GameMap -> Renderer architecture with zero double-mutations.
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useEditor } from '../core/EditorContext';
-import { PaintTilesCommand } from '../core/history/commands/PaintTilesCommand';
-import { AddObjectCommand, RemoveObjectCommand, TransformObjectCommand } from '../core/history/commands/ObjectCommands';
+import { PaintTilesCommand, TileChange } from '../core/history/commands/PaintTilesCommand';
+import {
+  AddObjectCommand,
+  RemoveObjectCommand,
+  TransformObjectCommand,
+  BatchAddObjectsCommand
+} from '../core/history/commands/ObjectCommands';
 import { Plus, Minus, Crosshair, Gamepad2, X } from 'lucide-react';
 import { MapObject } from '../core/types';
 
@@ -17,6 +23,7 @@ export const Viewport: React.FC = () => {
     map,
     state,
     editorState,
+    history,
     executeCommand,
     setSelectedObject,
     updateCursorCoords,
@@ -30,6 +37,7 @@ export const Viewport: React.FC = () => {
   const isDraggingObjectRef = useRef(false);
   const dragStartObjRef = useRef<MapObject | null>(null);
   const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const paintStrokeChangesRef = useRef<Map<string, { tx: number; ty: number; oldId: string | null; newId: string }>>(new Map());
 
   // Player position state for player mode
   const playerPosRef = useRef({ x: 33 * 32, y: 32 * 32 });
@@ -49,87 +57,69 @@ export const Viewport: React.FC = () => {
     }
 
     renderer.setPlayerPosition(playerPosRef.current.x, playerPosRef.current.y);
-    renderer.camera.centerOnWorld(playerPosRef.current.x, playerPosRef.current.y);
     renderer.render(map, editorState.current);
   }, [map, renderer, editorState]);
 
-  // Player mode keyboard event listener (WASD / Arrows)
+  // Handle keyboard inputs for WASD player control & arrow hotkeys
   useEffect(() => {
-    if (!state.playerMode) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
 
-    renderer.setPlayerPosition(playerPosRef.current.x, playerPosRef.current.y);
-    renderer.render(map, editorState.current);
-
-    const handlePlayerKeys = (e: KeyboardEvent) => {
-      if (['input', 'textarea', 'select'].includes((document.activeElement?.tagName || '').toLowerCase())) {
-        return;
-      }
-      if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') {
-        e.preventDefault();
-        stepPlayer(0, -1);
-      } else if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') {
-        e.preventDefault();
-        stepPlayer(0, 1);
-      } else if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') {
-        e.preventDefault();
-        stepPlayer(-1, 0);
-      } else if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') {
-        e.preventDefault();
-        stepPlayer(1, 0);
-      } else if (e.key === 'Escape') {
-        editorState.togglePlayerMode();
+      if (state.playerMode) {
+        if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          stepPlayer(0, -1);
+        } else if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          stepPlayer(0, 1);
+        } else if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') {
+          e.preventDefault();
+          stepPlayer(-1, 0);
+        } else if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') {
+          e.preventDefault();
+          stepPlayer(1, 0);
+        }
       }
     };
 
-    window.addEventListener('keydown', handlePlayerKeys);
-    return () => window.removeEventListener('keydown', handlePlayerKeys);
-  }, [state.playerMode, stepPlayer, renderer, map, editorState]);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [state.playerMode, stepPlayer]);
 
-  // Initialize Pixi application inside the DOM node on mount
+  // Mount PixiRenderer
   useEffect(() => {
-    let mounted = true;
     const container = containerRef.current;
     if (!container) return;
 
+    let isMounted = true;
+
     renderer.init(container).then(() => {
-      if (mounted) {
-        // Initial map setup
-        const w = container.clientWidth || 800;
-        const h = container.clientHeight || 600;
-        renderer.resize(w, h);
+      if (isMounted) {
         renderer.camera.centerOnWorld((map.width * map.tileSize) / 2, (map.height * map.tileSize) / 2);
-        renderer.invalidateTerrain();
-        renderer.invalidateObjects();
-        renderer.invalidateGrid();
-        renderer.invalidateCollision();
         renderer.render(map, editorState.current);
       }
     });
 
-    const resizeObserver = new ResizeObserver(entries => {
-      for (const entry of entries) {
-        if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
-          renderer.resize(entry.contentRect.width, entry.contentRect.height);
-          renderer.render(map, editorState.current);
-        }
+    const handleResize = () => {
+      if (renderer.app && container) {
+        renderer.app.renderer.resize(container.clientWidth, container.clientHeight);
+        renderer.render(map, editorState.current);
       }
-    });
-    resizeObserver.observe(container);
+    };
+
+    window.addEventListener('resize', handleResize);
 
     return () => {
-      mounted = false;
-      resizeObserver.disconnect();
+      isMounted = false;
+      window.removeEventListener('resize', handleResize);
     };
-  }, [renderer]);
+  }, [renderer, map, editorState]);
 
-  // Re-render when map or active tool/layer/selection changes
+  // Update render when player mode toggles
   useEffect(() => {
-    renderer.invalidateTerrain();
-    renderer.invalidateObjects();
-    renderer.invalidateGrid();
-    renderer.invalidateCollision();
-    renderer.render(map, editorState.current);
-  }, [map, state, renderer, editorState]);
+    renderer.setPlayerPosition(playerPosRef.current.x, playerPosRef.current.y);
+    renderer.render(map, state);
+  }, [state.playerMode, renderer, map, state]);
 
   // Handle pointer down
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -170,41 +160,46 @@ export const Viewport: React.FC = () => {
     if (e.button === 0) {
       if (state.activeTool === 'paint') {
         const oldTile = map.getTile(tx, ty);
-        if (oldTile !== state.selectedTerrainId) {
-          const cmd = new PaintTilesCommand(map, [{ tx, ty, oldId: oldTile, newId: state.selectedTerrainId }]);
-          executeCommand(cmd);
+        if (oldTile !== state.selectedTerrainId && map.inBounds(tx, ty)) {
+          paintStrokeChangesRef.current.clear();
+          paintStrokeChangesRef.current.set(`${tx}_${ty}`, { tx, ty, oldId: oldTile, newId: state.selectedTerrainId });
+          map.setTile(tx, ty, state.selectedTerrainId);
+          renderer.invalidateTerrain();
+          renderer.render(map, editorState.current);
         }
       } else if (state.activeTool === 'fill') {
-        const changes = map.floodFill(tx, ty, state.selectedTerrainId);
+        const changes = map.calculateFloodFill(tx, ty, state.selectedTerrainId);
         if (changes.length > 0) {
-          const cmd = new PaintTilesCommand(map, changes);
+          const cmd = new PaintTilesCommand(map, changes, 'Flood Fill');
           executeCommand(cmd);
         }
       } else if (state.activeTool === 'object') {
+        // Pure command instantiation - DO NOT call map.addObject prior to executeCommand!
         const newObj: Partial<MapObject> & { asset: string } = {
           asset: state.selectedObjectAsset,
           x: Math.round(wx),
           y: Math.round(wy)
         };
-        const created = map.addObject(newObj);
-        const cmd = new AddObjectCommand(map, created);
+        const cmd = new AddObjectCommand(map, newObj);
         executeCommand(cmd);
-        setSelectedObject(created.id);
+        setSelectedObject(cmd.createdObject.id);
       } else if (state.activeTool === 'scatter') {
+        // Single batch command with 3 scattered objects - pure command execution
+        const scatterObjects: Array<Partial<MapObject> & { asset: string }> = [];
         for (let i = 0; i < 3; i++) {
           const offsetX = (Math.random() - 0.5) * 48;
           const offsetY = (Math.random() - 0.5) * 48;
-          const scale = 0.85 + Math.random() * 0.3;
-          const created = map.addObject({
+          const scale = Number((0.85 + Math.random() * 0.3).toFixed(2));
+          scatterObjects.push({
             asset: state.selectedObjectAsset,
             x: Math.round(wx + offsetX),
             y: Math.round(wy + offsetY),
             scaleX: scale,
             scaleY: scale
           });
-          const cmd = new AddObjectCommand(map, created);
-          executeCommand(cmd);
         }
+        const cmd = new BatchAddObjectsCommand(map, scatterObjects, 'Scatter Objects');
+        executeCommand(cmd);
       } else if (state.activeTool === 'select') {
         const hit = map.findObjectAt(wx, wy, id => renderer.getObjectDef(id));
         if (hit) {
@@ -259,8 +254,12 @@ export const Viewport: React.FC = () => {
       if (state.activeTool === 'paint') {
         const oldTile = map.getTile(tx, ty);
         if (oldTile !== state.selectedTerrainId && map.inBounds(tx, ty)) {
-          const cmd = new PaintTilesCommand(map, [{ tx, ty, oldId: oldTile, newId: state.selectedTerrainId }]);
-          executeCommand(cmd);
+          if (!paintStrokeChangesRef.current.has(`${tx}_${ty}`)) {
+            paintStrokeChangesRef.current.set(`${tx}_${ty}`, { tx, ty, oldId: oldTile, newId: state.selectedTerrainId });
+            map.setTile(tx, ty, state.selectedTerrainId);
+            renderer.invalidateTerrain();
+            renderer.render(map, editorState.current);
+          }
         }
       } else if (state.activeTool === 'select' && isDraggingObjectRef.current && state.selectedObjectId) {
         map.updateObject(state.selectedObjectId, { x: Math.round(wx), y: Math.round(wy) });
@@ -288,6 +287,15 @@ export const Viewport: React.FC = () => {
     setIsPanning(false);
     renderer.camera.isDragging = false;
 
+    // Commit paint stroke changes to history as 1 single command
+    if (paintStrokeChangesRef.current.size > 0) {
+      const changes: TileChange[] = Array.from(paintStrokeChangesRef.current.values());
+      paintStrokeChangesRef.current.clear();
+      const cmd = new PaintTilesCommand(map, changes, 'Paint Tiles');
+      history.push(cmd);
+      editorState.setDirty(history.isDirty());
+    }
+
     // Commit drag transform to history
     if (isDraggingObjectRef.current && state.selectedObjectId && dragStartObjRef.current) {
       const currentObj = map.getObject(state.selectedObjectId);
@@ -300,7 +308,8 @@ export const Viewport: React.FC = () => {
             { x: dragStartObjRef.current.x, y: dragStartObjRef.current.y },
             { x: currentObj.x, y: currentObj.y }
           );
-          executeCommand(cmd);
+          history.push(cmd);
+          editorState.setDirty(history.isDirty());
         }
       }
     }

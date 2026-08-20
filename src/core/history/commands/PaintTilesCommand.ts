@@ -1,6 +1,6 @@
 /**
  * src/core/history/commands/PaintTilesCommand.ts
- * Command for batch tile painting and flood fills.
+ * Command for batch tile painting, fills, and flood fills.
  */
 
 import { Command } from '../Command';
@@ -14,7 +14,7 @@ export interface TileChange {
 }
 
 export class PaintTilesCommand implements Command {
-  readonly description = 'Paint Tiles';
+  readonly description: string;
   private map: GameMap;
   private changes: TileChange[];
   private onApply?: (changes: TileChange[]) => void;
@@ -22,10 +22,12 @@ export class PaintTilesCommand implements Command {
   constructor(
     map: GameMap,
     changes: TileChange[],
+    description = 'Paint Tiles',
     onApply?: (changes: TileChange[]) => void
   ) {
     this.map = map;
     this.changes = changes;
+    this.description = description;
     this.onApply = onApply;
   }
 

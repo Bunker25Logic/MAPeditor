@@ -1,6 +1,6 @@
 /**
  * src/components/StatusBar.tsx
- * Bottom status bar showing live coordinates, tile, chunk, zoom, active tool and FPS.
+ * Bottom status bar showing live coordinates, tile, chunk, zoom, active tool, saved/dirty state and FPS.
  */
 
 import React from 'react';
@@ -27,6 +27,12 @@ export const StatusBar: React.FC = () => {
         </div>
         <div className="hidden sm:block font-mono">
           Chunk: <span className="text-[#f0f3f8]">[{cursorInfo.chunkX}, {cursorInfo.chunkY}]</span>
+        </div>
+        <div className="hidden md:flex items-center gap-1.5">
+          <span className={`w-2 h-2 rounded-full ${state.dirty ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}`} />
+          <span className={state.dirty ? 'text-amber-400 font-medium' : 'text-[#677184]'}>
+            {state.dirty ? 'Não Salvo' : 'Salvo'}
+          </span>
         </div>
       </div>
 

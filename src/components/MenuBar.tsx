@@ -49,7 +49,8 @@ export const MenuBar: React.FC<MenuBarProps> = ({
     generateRocks,
     centerCamera,
     editorState,
-    state
+    state,
+    map
   } = useEditor();
 
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
@@ -104,6 +105,9 @@ export const MenuBar: React.FC<MenuBarProps> = ({
           <span>MMO MAPPER</span>
           <span className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded uppercase">
             2D PRO
+          </span>
+          <span className="hidden lg:inline-block text-[11px] font-normal text-[#9ba3b4] ml-1">
+            [{map.width}x{map.height}]{state.dirty ? ' *' : ''}
           </span>
         </div>
 

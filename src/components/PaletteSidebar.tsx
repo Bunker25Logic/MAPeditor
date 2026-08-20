@@ -213,15 +213,21 @@ export const PaletteSidebar: React.FC<{ isOpen: boolean; onClose: () => void }> 
                 const file = e.target.files?.[0];
                 if (file) {
                   const type = activeTab === 'terrain' ? 'terrain' : 'object';
-                  const res = await (renderer.assetManager as unknown as {
-                    loadCustomImage: (f: File, t: string) => Promise<{ id: string }>;
-                  }).loadCustomImage(file, type);
+                  const res = await renderer.assetManager.loadCustomImage(file, type);
 
                   if (res && res.id) {
                     if (type === 'terrain') {
                       setSelectedTerrain(res.id);
+                      setThumbnails(prev => ({
+                        ...prev,
+                        [`t_${res.id}`]: renderer.assetManager.getTerrainThumbnail(res.id)
+                      }));
                     } else {
                       setSelectedAsset(res.id);
+                      setThumbnails(prev => ({
+                        ...prev,
+                        [`o_${res.id}`]: renderer.assetManager.getObjectThumbnail(res.id)
+                      }));
                     }
                   }
                 }
